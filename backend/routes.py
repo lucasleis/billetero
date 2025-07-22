@@ -154,10 +154,26 @@ def procesar_pdf(pdf_file):
         "projectionData": projection
     }
 
+def merge_projections(projections):
+    from collections import defaultdict
+
+    acumulado = defaultdict(float)
+
+    for proyeccion in projections:
+        if not isinstance(proyeccion, list):
+            continue  # si no es lista, skip
+
+        for p in proyeccion:
+            if isinstance(p, dict) and 'month' in p and 'amount' in p:
+                acumulado[p['month']] += p['amount']
+
+    return [{"month": mes, "amount": round(monto, 2)} for mes, monto in sorted(acumulado.items())]
+
 
 
 ### Routes ###
 
+"""
 @app.route('/procesar_resumen', methods=['POST'])
 def procesar_resumen():
     if 'file' not in request.files:
@@ -166,6 +182,38 @@ def procesar_resumen():
     file = request.files['file']
     resultado = procesar_pdf(file)
     return jsonify(resultado)
+"""
+
+@app.route('/procesar_resumen', methods=['POST'])
+def procesar_resumen():
+    if 'files' not in request.files:
+        return jsonify({"error": "No se enviaron archivos"}), 400
+
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({"error": "La lista de archivos está vacía"}), 400
+
+    all_expenses = []
+    all_projections = []
+    total_processed_files = 0
+
+    for file in files:
+        if file.filename == '' or not file.filename.endswith('.pdf'):
+            continue  # ignorar archivos inválidos
+
+        resultado = procesar_pdf(file)
+        all_expenses.extend(resultado['expensesData'])
+        print(f"Proyección archivo: {resultado['projectionData']}")
+        all_projections.append(resultado['projectionData'])
+        total_processed_files += 1
+
+    summary = calcular_summary(all_expenses)
+
+    return jsonify({
+        "summaryData": {**summary, "processedFiles": total_processed_files},
+        "expensesData": all_expenses,
+        "projectionData": merge_projections(all_projections)
+    })
 
 
 
