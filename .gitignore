@@ -37,3 +37,8 @@ Thumbs.db
 # lockfiles (si no usas yarn/pnpm, ignora los que no uses)
 yarn.lock
 pnpm-lock.yaml
+
+
+
+# Backend
+backend/venv

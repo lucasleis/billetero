@@ -1,0 +1,8 @@
+# API
+Flask 
+
+# PDF
+pdfplumber==0.11.7 
+pdfminer.six==20250324
+
+
