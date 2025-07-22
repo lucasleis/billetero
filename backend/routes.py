@@ -215,6 +215,35 @@ def extraer_expenses_visa_galicia(texto):
 
     return expenses
 
+def extraer_expenses_galicia_mastercard(texto):
+    expenses = []
+    regex = re.compile(
+        r'(\d{2}-[A-Za-z]{3}-\d{2})\s+(.+?)\s+\d{5}\s+([\d\.,]+)'
+    )
+
+    for idx, match in enumerate(regex.finditer(texto), start=1):
+        fecha, descripcion, importe_str = match.groups()
+        importe = float(importe_str.replace('.', '').replace(',', '.'))
+
+        installments, current_installment = detectar_cuotas(descripcion)
+        merchant = limpiar_merchant(descripcion)
+        category = categorizar_gasto(merchant)
+
+        expenses.append({
+            "id": idx,
+            "date": convertir_fecha(fecha, "%d-%b-%y"),
+            "merchant": merchant,
+            "totalAmount": importe,
+            "installments": installments,
+            "currentInstallment": current_installment,
+            "installmentAmount": round(importe / installments, 2) if installments > 1 else importe,
+            "category": category,
+            "period": obtener_periodo(fecha, "%d-%b-%y"),
+        })
+
+    return expenses
+
+
 def calcular_summary(expenses):
     total_spent = sum(e['totalAmount'] for e in expenses)
     total_to_pay = sum(e['installmentAmount'] for e in expenses if e['installments'] > 1)
@@ -244,8 +273,10 @@ def procesar_pdf(pdf_file):
     tipo_tarjeta = detectar_tipo_tarjeta(texto)
     banco = detectar_banco(texto)
 
-    if tipo_tarjeta == 'VISA' and banco == 'GALICIA':
+    if banco == 'GALICIA' and tipo_tarjeta == 'VISA':
         expenses = extraer_expenses_visa_galicia(texto)
+    elif banco == 'GALICIA' and tipo_tarjeta == 'MASTERCARD':
+        expenses = extraer_expenses_galicia_mastercard(texto)
     elif tipo_tarjeta == 'VISA':
         expenses = extraer_expenses_visa(texto)
     else:
@@ -259,6 +290,8 @@ def procesar_pdf(pdf_file):
         "expensesData": expenses,
         "projectionData": projection
     }
+
+
 
 @app.route('/procesar_resumen', methods=['POST'])
 def procesar_resumen():
