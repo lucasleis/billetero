@@ -19,9 +19,9 @@ MESES_ESP_ING = {
 }
 
 def detectar_banco(texto):
-    if "Banco de la Nación Argentina" in texto:
+    if "Banco de la Nación Argentina" in texto or "Banco Nación" in texto:
         return "NACION"
-    elif "Banco Galicia" in texto or "Resumen de tarjeta de credito VISA" in texto:
+    elif "Banco Galicia" in texto or "Resumen de tarjeta de credito VISA" in texto or "bancogalicia.com" in texto:
         return "GALICIA"
     return "DESCONOCIDO"
 
@@ -78,17 +78,28 @@ def limpiar_merchant(descripcion):
 
 def categorizar_gasto(merchant):
     categorias = {
-        "RACING": "Entretenimiento",
+        "RACING": "Racing Club",
+        "RACING CLUB ASOCIACION CIVIL": "Entretenimiento",
         "HUSH": "Ropa",
         "WWW.AEROLINEAS.COM.AR": "Viajes",
+        "AEROLINEAS.COM.AR": "Viajes",
+        "MERPAGO*LACARDEUSE": "Depto",
+        "ARREDO": "Depto",
         "MERPAGO": "E-commerce",
+        "Spotify": "Servicios",
+        "APPLE.COM/BILL": "Servicios",
+        "GOOGLE": "Servicios",
     }
     for clave, categoria in categorias.items():
         if clave in merchant:
             return categoria
     return "Otros"
 
-def extraer_expenses(texto):
+
+
+### expenses ###
+
+def extraer_expenses_nacion_mastercard(texto):
     expenses = []
     patron = re.compile(r'(\d{2}-[A-Za-z]{3}-\d{2})\s+(.+?)\s+\d{5}\s+([\d\.,-]+)')
     for idx, match in enumerate(patron.finditer(texto), start=1):
@@ -112,7 +123,7 @@ def extraer_expenses(texto):
         })
     return expenses
 
-def extraer_expenses_visa(texto):
+def extraer_expenses_nacion_visa(texto):
     expenses = []
     regex = re.compile(r'(\d{2}-\d{2}-\d{2})\s+\d{6}\s+(.+?)\s+(?:C\.\d{2}/\d{2}\s+)?([\d\.,]+)')
 
@@ -137,57 +148,7 @@ def extraer_expenses_visa(texto):
         })
     return expenses
 
-def extraer_projection(texto):
-    projection = []
-    lines = texto.splitlines()
-
-    for i, line in enumerate(lines):
-        if 'Cuotas a vencer' in line:
-            mastercard_meses = re.findall(r'([A-Za-z]+-\d{2})', line)
-            if mastercard_meses:
-                if i + 1 < len(lines):
-                    projection = parsear_projection_mastercard(mastercard_meses, lines[i + 1])
-                break
-            else:
-                if i + 1 < len(lines):
-                    meses_line = lines[i + 1].replace('Setiembre', 'Septiembre')
-                    if i + 2 < len(lines):
-                        projection = parsear_projection_visa(meses_line, lines[i + 2])
-                    if i + 3 < len(lines) and 'A partir de' in lines[i + 3]:
-                        adicional = parsear_projection_visa_adicional(lines[i + 3])
-                        if adicional:
-                            projection.append(adicional)
-                break
-    return projection
-
-def parsear_projection_mastercard(meses, montos_line):
-    projection = []
-    montos = re.findall(r'\$\s*-?[\d\.\s]*\d+,\d{2}', montos_line)
-    for i, mes in enumerate(meses):
-        if i < len(montos):
-            monto = montos[i].replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
-            projection.append({"month": normalizar_mes(mes), "amount": round(float(monto), 2)})
-    return projection
-
-def parsear_projection_visa(meses_line, montos_line):
-    projection = []
-    meses = re.findall(r'([A-Za-z]+/\d{2})', meses_line)
-    montos = re.findall(r'\$[\s-]*[\d\.,]+', montos_line)
-    for i, mes in enumerate(meses):
-        if i < len(montos):
-            monto = montos[i].replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
-            projection.append({"month": normalizar_mes(mes), "amount": round(float(monto), 2)})
-    return projection
-
-def parsear_projection_visa_adicional(line):
-    match = re.search(r'A partir de\s+(\w+/\d{2})\s+\$([\d\.,]+)', line)
-    if match:
-        mes, monto = match.groups()
-        monto = monto.replace('.', '').replace(',', '.')
-        return {"month": normalizar_mes(mes), "amount": round(float(monto), 2)}
-    return None
-
-def extraer_expenses_visa_galicia(texto):
+def extraer_expenses_galicia_visa(texto):
     expenses = []
     # Buscar solo las líneas de consumo con cuota: 06/06, etc
     regex_consumos = re.compile(
@@ -244,17 +205,146 @@ def extraer_expenses_galicia_mastercard(texto):
     return expenses
 
 
-def calcular_summary(expenses):
-    total_spent = sum(e['totalAmount'] for e in expenses)
-    total_to_pay = sum(e['installmentAmount'] for e in expenses if e['installments'] > 1)
-    active_installments = sum(1 for e in expenses if e['installments'] > 1)
+### projection ###
+
+def extraer_projection(texto):
+    projection = []
+    lines = texto.splitlines()
+
+    for i, line in enumerate(lines):
+        if 'Cuotas a vencer' in line:
+            mastercard_meses = re.findall(r'([A-Za-z]+-\d{2})', line)
+            if mastercard_meses:
+                if i + 1 < len(lines):
+                    projection = parsear_projection_mastercard(mastercard_meses, lines[i + 1])
+                break
+            else:
+                if i + 1 < len(lines):
+                    meses_line = lines[i + 1].replace('Setiembre', 'Septiembre')
+                    if i + 2 < len(lines):
+                        projection = parsear_projection_visa(meses_line, lines[i + 2])
+                    if i + 3 < len(lines) and 'A partir de' in lines[i + 3]:
+                        adicional = parsear_projection_visa_adicional(lines[i + 3])
+                        if adicional:
+                            projection.append(adicional)
+                break
+    return projection
+
+def parsear_projection_mastercard(meses, montos_line):
+    projection = []
+    montos = re.findall(r'\$\s*-?[\d\.\s]*\d+,\d{2}', montos_line)
+    for i, mes in enumerate(meses):
+        if i < len(montos):
+            monto = montos[i].replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
+            projection.append({"month": normalizar_mes(mes), "amount": round(float(monto), 2)})
+    return projection
+
+def parsear_projection_visa(meses_line, montos_line):
+    projection = []
+    meses = re.findall(r'([A-Za-z]+/\d{2})', meses_line)
+    montos = re.findall(r'\$[\s-]*[\d\.,]+', montos_line)
+    for i, mes in enumerate(meses):
+        if i < len(montos):
+            monto = montos[i].replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
+            projection.append({"month": normalizar_mes(mes), "amount": round(float(monto), 2)})
+    return projection
+
+def parsear_projection_visa_adicional(line):
+    match = re.search(r'A partir de\s+(\w+/\d{2})\s+\$([\d\.,]+)', line)
+    if match:
+        mes, monto = match.groups()
+        monto = monto.replace('.', '').replace(',', '.')
+        return {"month": normalizar_mes(mes), "amount": round(float(monto), 2)}
+    return None
+
+def extraer_projection_galicia_master(texto):
+    projection = []
+    lines = texto.splitlines()
+
+    for i, line in enumerate(lines):
+        if "Cuotas a vencer" in line:
+            if i + 1 < len(lines):
+                meses_line = lines[i + 1]
+                montos_line = lines[i + 2] if i + 2 < len(lines) else ""
+
+                meses = re.findall(r'([A-Za-z]+-\d{2})', meses_line)
+                montos = re.findall(r'\$[\s]*[\d\.,]+', montos_line)
+
+                for mes, monto in zip(meses, montos):
+                    monto = monto.replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
+                    projection.append({
+                        "month": mes,
+                        "amount": round(float(monto), 2)
+                    })
+            break
+
+    return projection
+
+
+### summary ####
+
+def extraer_summary_nacion_mastercard(texto):
+    saldo_actual = None
+    pago_minimo = None
+
+    # Buscar "Saldo actual" con formato con coma decimal
+    match_saldo = re.search(r'SALDO ACTUAL\s+([\d\.,]+)', texto)
+    if match_saldo:
+        saldo_actual = float(match_saldo.group(1).replace('.', '').replace(',', '.'))
+
+    # Buscar "Pago mínimo" con formato con coma decimal
+    match_pago = re.search(r'Pago M[ií]nimo:\s+\$\s*([\d\.,]+)', texto)
+    if not match_pago:
+        # Alternativa en caso de que no tenga el formato con "$"
+        match_pago = re.search(r'PAGO MINIMO\s+([\d\.,]+)', texto)
+
+    if match_pago:
+        pago_minimo = float(match_pago.group(1).replace('.', '').replace(',', '.'))
 
     return {
-        "totalSpent": round(total_spent, 2),
-        "totalToPay": round(total_to_pay, 2),
-        "activeInstallments": active_installments,
-        "processedFiles": 1
+        "total_pesos": saldo_actual or 0,
+        "total_dolares": 0
     }
+
+def extraer_summary_nacion_visa(texto):
+    saldo_actual = None
+    pago_minimo = None
+
+    # Buscar el SALDO ACTUAL
+    match_saldo = re.search(r'SALDO ACTUAL:\s*\$\s*([\d\.,]+)', texto)
+    if match_saldo:
+        saldo_actual = float(match_saldo.group(1).replace('.', '').replace(',', '.'))
+
+    # Buscar el PAGO MINIMO
+    match_pago = re.search(r'PAGO M[ÍI]NIMO:\s*\$\s*([\d\.,]+)', texto)
+    if match_pago:
+        pago_minimo = float(match_pago.group(1).replace('.', '').replace(',', '.'))
+    else:
+        # Alternativa: PAGO MINIMO en otra sección (sin $)
+        match_pago_alt = re.search(r'PAGO MINIMO\s+([\d\.,]+)', texto)
+        if match_pago_alt:
+            pago_minimo = float(match_pago_alt.group(1).replace('.', '').replace(',', '.'))
+
+    return {
+        "total_pesos": saldo_actual or 0,
+        "total_dolares": 0
+    }
+
+def extraer_summary_galicia(texto):
+    total_pesos = None
+    total_dolares = None
+
+    # Buscar línea que contenga TOTAL A PAGAR seguido de ambos valores
+    match = re.search(r'TOTAL A PAGAR\s+([\d\.\,]+)\s+([\d\.\,]+)', texto)
+    if match:
+        total_pesos = float(match.group(1).replace('.', '').replace(',', '.'))
+        total_dolares = float(match.group(2).replace('.', '').replace(',', '.'))
+
+    return {
+        "total_pesos": total_pesos,
+        "total_dolares": total_dolares
+    }
+
 
 def merge_projections(projections):
     from collections import defaultdict
@@ -268,22 +358,55 @@ def merge_projections(projections):
                 acumulado[p['month']] += p['amount']
     return [{"month": mes, "amount": round(monto, 2)} for mes, monto in sorted(acumulado.items())]
 
+
+def calcular_summary(expenses):
+    total_spent = sum(e['totalAmount'] for e in expenses)
+    total_to_pay = sum(e['installmentAmount'] for e in expenses if e['installments'] > 1)
+    active_installments = sum(1 for e in expenses if e['installments'] > 1)
+
+    return {
+        "totalSpent": round(total_spent, 2),
+        "totalToPay": round(total_to_pay, 2),
+        "activeInstallments": active_installments,
+        "processedFiles": 1
+    }
+
+
+
 def procesar_pdf(pdf_file):
     texto = extract_text_from_pdf(pdf_file)
     tipo_tarjeta = detectar_tipo_tarjeta(texto)
     banco = detectar_banco(texto)
 
     if banco == 'GALICIA' and tipo_tarjeta == 'VISA':
-        expenses = extraer_expenses_visa_galicia(texto)
+        print(f"Banco: {banco} VISA")
+        expenses = extraer_expenses_galicia_visa(texto)
+        summary  = extraer_summary_galicia(texto)
+        projection = extraer_projection(texto)
+        # print(summary)
+
     elif banco == 'GALICIA' and tipo_tarjeta == 'MASTERCARD':
+        print(f"Banco: {banco} MASTER ")
         expenses = extraer_expenses_galicia_mastercard(texto)
+        summary  = extraer_summary_galicia(texto)
+        projection = extraer_projection_galicia_master(texto)
+        # print(summary)
+        
     elif tipo_tarjeta == 'VISA':
-        expenses = extraer_expenses_visa(texto)
+        print(f"Banco: {banco} VISA ")
+        expenses = extraer_expenses_nacion_visa(texto)
+        projection = extraer_projection(texto)
+        summary  = extraer_summary_nacion_visa(texto)
+        # print(summary)
+
     else:
-        expenses = extraer_expenses(texto)
-    
-    summary = calcular_summary(expenses)
-    projection = extraer_projection(texto)
+        print(f"Banco: {banco} MASTER ")
+        expenses = extraer_expenses_nacion_mastercard(texto)
+        projection = extraer_projection(texto)
+        summary  = extraer_summary_nacion_mastercard(texto)
+        # print(summary)
+
+    # summary = calcular_summary(expenses)
 
     return {
         "summaryData": summary,
@@ -303,6 +426,7 @@ def procesar_resumen():
         return jsonify({"error": "La lista de archivos está vacía"}), 400
 
     all_expenses, all_projections = [], []
+    total_pesos, total_dolares = 0, 0
     total_processed_files = 0
 
     for file in files:
@@ -310,17 +434,25 @@ def procesar_resumen():
             continue
 
         resultado = procesar_pdf(file)
-        all_expenses.extend(resultado['expensesData'])
-        all_projections.append(resultado['projectionData'])
+
+        # Acumulamos pesos y dólares del resumen
+        resumen = resultado.get('summaryData', {})
+        total_pesos += resumen.get('total_pesos', 0) or 0
+        total_dolares += resumen.get('total_dolares', 0) or 0
+
+        all_expenses.extend(resultado.get('expensesData', []))
+        all_projections.append(resultado.get('projectionData'))
         total_processed_files += 1
 
-    summary = calcular_summary(all_expenses)
-
     return jsonify({
-        "summaryData": {**summary, "processedFiles": total_processed_files},
+        "summaryData": {
+            "total_pesos": round(total_pesos, 2),
+            "total_dolares": round(total_dolares, 2)
+        },
         "expensesData": all_expenses,
         "projectionData": merge_projections(all_projections)
     })
+
 
 if __name__ == '__main__':
     app.run(debug=True)
